@@ -402,40 +402,87 @@ const ProductHunter = () => {
     // Wait for content script to initialize
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-         // Start scraping ALL products (no limit)
-     setScrapingStatus('Starting to scrape products...');
-     console.log('eComMiracle Searcher All: Starting scraping...');
-     const scrapeResult = await chrome.tabs.sendMessage(targetTab.id, {
-       callback: 'scrapeAmazonProducts',
-       payload: {
-         maxProducts: 9999, // Large number to scrape all products on page
-         tabId: targetTab.id
-       }
-     });
+         // First, get the count of products on the page to avoid duplicates
+    setScrapingStatus('Counting products on page...');
+    console.log('eComMiracle Searcher All: Counting products on page...');
+    
+    // Get the actual number of products on the page
+    const countResult = await chrome.tabs.sendMessage(targetTab.id, {
+      callback: 'countAmazonProducts',
+      payload: {
+        tabId: targetTab.id
+      }
+    });
+    
+    if (!countResult || !countResult.success) {
+      console.log('eComMiracle Searcher All: Could not count products, using default limit');
+      setScrapingStatus('Could not count products, using default limit');
+    }
+    
+    const maxProducts = countResult?.productCount || 50; // Default to 50 if counting fails
+    console.log(`eComMiracle Searcher All: Found ${maxProducts} products on page`);
+    
+    // Start scraping products with the actual count to prevent duplicates
+    setScrapingStatus(`Starting to scrape ${maxProducts} products...`);
+    console.log('eComMiracle Searcher All: Starting scraping...');
+    const scrapeResult = await chrome.tabs.sendMessage(targetTab.id, {
+      callback: 'scrapeAmazonProducts',
+      payload: {
+        maxProducts: maxProducts, // Use actual count to scrape only products on page
+        tabId: targetTab.id
+      }
+    });
     
     console.log('eComMiracle Searcher All: Scraping result:', scrapeResult);
     
     if (scrapeResult && scrapeResult.success) {
       // Let progress monitoring handle the UI updates
       
-      // Store in local storage
-      await setLocal(`amazon-hunted-products-${userId}`, scrapeResult.products);
+      // Store in local storage with deduplication
+      const existingProducts = await getLocal(`amazon-hunted-products-${userId}`) || [];
+      
+      // Create a map of existing products by ASIN
+      const existingAsinMap = new Map();
+      existingProducts.forEach(product => {
+        const asin = product.asin || product.amazonAsin;
+        if (asin && asin !== 'N/A') {
+          existingAsinMap.set(asin, product);
+        }
+      });
+      
+      // Filter out duplicates from new products
+      const uniqueNewProducts = scrapeResult.products.filter(product => {
+        const asin = product.asin || product.amazonAsin;
+        if (asin && asin !== 'N/A') {
+          return !existingAsinMap.has(asin);
+        }
+        return true; // Keep products without ASIN
+      });
+      
+      // Combine existing and new unique products
+      const allProducts = [...existingProducts, ...uniqueNewProducts];
+      await setLocal(`amazon-hunted-products-${userId}`, allProducts);
+      
+      // Update state with deduplicated products
+      setAmazonHuntedProducts(allProducts);
+      setTotalProducts(allProducts.length);
       
       // Set final progress to 100% for the progress bar
       await setLocal('amazon-scraping-progress', {
         status: 'Scraping completed successfully!',
         progress: 100,
-        currentProduct: scrapeResult.products.length,
-        totalProducts: scrapeResult.products.length
+        currentProduct: allProducts.length,
+        totalProducts: allProducts.length,
+        products: allProducts
       });
       
-      console.log('eComMiracle Searcher All: Products updated successfully');
+      console.log(`eComMiracle Searcher All: ${existingProducts.length} existing + ${uniqueNewProducts.length} new = ${allProducts.length} total products`);
       setScrapingStatus('Scraping completed successfully!');
       setScrapingProgress(100);
       
       notification.success({
         message: 'Scraping Complete',
-        description: `Successfully scraped all ${scrapeResult.products.length} products from the page`
+        description: `Successfully scraped ${uniqueNewProducts.length} new unique products (${allProducts.length} total, no duplicates)`
       });
       
     } else {
@@ -1143,14 +1190,32 @@ const ProductHunter = () => {
           setAmazonHuntedProducts(prev => {
             // Ensure prev is always an array to prevent spread operator errors
             const currentProducts = Array.isArray(prev) ? prev : [];
-            const updated = [...currentProducts, ...newProducts];
-            console.log('Updated amazonHuntedProducts from scrape all:', updated);
+            
+            // Create a map of existing products by ASIN to prevent duplicates
+            const existingAsinMap = new Map();
+            currentProducts.forEach(product => {
+              const asin = product.asin || product.amazonAsin;
+              if (asin && asin !== 'N/A') {
+                existingAsinMap.set(asin, product);
+              }
+            });
+            
+            // Filter out duplicates from new products
+            const uniqueNewProducts = newProducts.filter(product => {
+              const asin = product.asin || product.amazonAsin;
+              if (asin && asin !== 'N/A') {
+                return !existingAsinMap.has(asin);
+              }
+              return true; // Keep products without ASIN
+            });
+            
+            const updated = [...currentProducts, ...uniqueNewProducts];
+            console.log(`URL Scrape All: ${currentProducts.length} existing + ${uniqueNewProducts.length} new = ${updated.length} total`);
             return updated;
           });
           setTotalProducts(prev => {
-            const newTotal = prev + newProducts.length;
-            console.log('Updated totalProducts from scrape all:', newTotal);
-            return newTotal;
+            const currentProducts = Array.isArray(amazonHuntedProducts) ? amazonHuntedProducts : [];
+            return currentProducts.length;
           });
           setScrapedProducts([]); // Clear scraped products since they're now in main results
           
@@ -1163,10 +1228,10 @@ const ProductHunter = () => {
           // Wait a moment to show 100% completion
           setTimeout(() => {
             setIsUrlScraping(false); // stop loading
-            notification.success({
-              message: 'Success',
-              description: `Scraped all ${scrapeResult.products.length} products and added to results`
-            });
+                      notification.success({
+            message: 'Success',
+            description: `Scraped all ${scrapeResult.products.length} products and added unique products to results`
+          });
           }, 1000);
         } else {
           console.log('Scrape all failed:', scrapeResult);
@@ -1411,14 +1476,32 @@ const ProductHunter = () => {
         setAmazonHuntedProducts(prev => {
           // Ensure prev is always an array to prevent spread operator errors
           const currentProducts = Array.isArray(prev) ? prev : [];
-          const updated = [...currentProducts, ...newProducts];
-          console.log('Updated amazonHuntedProducts:', updated);
+          
+          // Create a map of existing products by ASIN to prevent duplicates
+          const existingAsinMap = new Map();
+          currentProducts.forEach(product => {
+            const asin = product.asin || product.amazonAsin;
+            if (asin && asin !== 'N/A') {
+              existingAsinMap.set(asin, product);
+            }
+          });
+          
+          // Filter out duplicates from new products
+          const uniqueNewProducts = newProducts.filter(product => {
+            const asin = product.asin || product.amazonAsin;
+            if (asin && asin !== 'N/A') {
+              return !existingAsinMap.has(asin);
+            }
+            return true; // Keep products without ASIN
+          });
+          
+          const updated = [...currentProducts, ...uniqueNewProducts];
+          console.log(`URL Scrape: ${currentProducts.length} existing + ${uniqueNewProducts.length} new = ${updated.length} total`);
           return updated;
         });
         setTotalProducts(prev => {
-          const newTotal = prev + newProducts.length;
-          console.log('Updated totalProducts:', newTotal);
-          return newTotal;
+          const currentProducts = Array.isArray(amazonHuntedProducts) ? amazonHuntedProducts : [];
+          return currentProducts.length;
         });
         setScrapedProducts([]); // Clear scraped products since they're now in main results
         
@@ -1433,7 +1516,7 @@ const ProductHunter = () => {
           setIsUrlScraping(false); // stop loading
           notification.success({
             message: 'Success',
-            description: `Scraped ${scrapeResult.products.length} products and added to results`
+            description: `Scraped ${scrapeResult.products.length} products and added unique products to results`
           });
         }, 1000);
       } else {
@@ -1525,11 +1608,36 @@ const ProductHunter = () => {
             setAmazonHuntedProducts(prev => {
               // Ensure prev is always an array
               const currentProducts = Array.isArray(prev) ? prev : [];
-              return newProducts;
+              
+              // Create a map of existing products by ASIN to prevent duplicates
+              const existingAsinMap = new Map();
+              currentProducts.forEach(product => {
+                const asin = product.asin || product.amazonAsin;
+                if (asin && asin !== 'N/A') {
+                  existingAsinMap.set(asin, product);
+                }
+              });
+              
+              // Filter out duplicates and add new products
+              const uniqueNewProducts = newProducts.filter(product => {
+                const asin = product.asin || product.amazonAsin;
+                if (asin && asin !== 'N/A') {
+                  return !existingAsinMap.has(asin);
+                }
+                return true; // Keep products without ASIN
+              });
+              
+              const updatedProducts = [...currentProducts, ...uniqueNewProducts];
+              console.log(`Progress update: ${currentProducts.length} existing + ${uniqueNewProducts.length} new = ${updatedProducts.length} total`);
+              
+              return updatedProducts;
             });
             
             // Update total products count
-            setTotalProducts(newProducts.length);
+            setTotalProducts(prev => {
+              const currentProducts = Array.isArray(amazonHuntedProducts) ? amazonHuntedProducts : [];
+              return currentProducts.length;
+            });
           }
         }
       } catch (error) {
@@ -1557,7 +1665,7 @@ const ProductHunter = () => {
             // Update main progress bar to show completion
             setPercentage(100);
             
-            // Ensure products are properly displayed
+            // Ensure products are properly displayed with deduplication
             const finalProducts = progress.products.map(product => ({
               ...product,
               amazonTitle: product.title,
@@ -1571,12 +1679,38 @@ const ProductHunter = () => {
             setAmazonHuntedProducts(prev => {
               // Ensure prev is always an array to prevent spread operator errors
               const currentProducts = Array.isArray(prev) ? prev : [];
-              // Remove any existing progress products and add final ones
+              
+              // Create a map of existing products by ASIN to prevent duplicates
+              const existingAsinMap = new Map();
+              currentProducts.forEach(product => {
+                const asin = product.asin || product.amazonAsin;
+                if (asin && asin !== 'N/A') {
+                  existingAsinMap.set(asin, product);
+                }
+              });
+              
+              // Filter out duplicates from final products
+              const uniqueFinalProducts = finalProducts.filter(product => {
+                const asin = product.asin || product.amazonAsin;
+                if (asin && asin !== 'N/A') {
+                  return !existingAsinMap.has(asin);
+                }
+                return true; // Keep products without ASIN
+              });
+              
+              // Remove progress products and add unique final products
               const filtered = currentProducts.filter(p => !p.key?.startsWith('progress-'));
-              return [...filtered, ...finalProducts];
+              const updatedProducts = [...filtered, ...uniqueFinalProducts];
+              
+              console.log(`Finalization: ${filtered.length} existing + ${uniqueFinalProducts.length} new = ${updatedProducts.length} total`);
+              
+              return updatedProducts;
             });
             
-            setTotalProducts(finalProducts.length);
+            setTotalProducts(prev => {
+              const currentProducts = Array.isArray(amazonHuntedProducts) ? amazonHuntedProducts : [];
+              return currentProducts.length;
+            });
           }
         } catch (error) {
           console.error('Error finalizing progress:', error);

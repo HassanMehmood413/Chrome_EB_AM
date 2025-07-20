@@ -13,6 +13,7 @@ window.scrapeAmazonProducts = function(maxProducts, onProgress) {
     console.log(`🔍 Starting to scrape ${maxProducts} products...`);
     
     const products = [];
+    const seenAsins = new Set(); // Track ASINs to prevent duplicates
     
     // Try multiple selectors for different Amazon layouts
     const selectors = [
@@ -65,9 +66,21 @@ window.scrapeAmazonProducts = function(maxProducts, onProgress) {
         const productData = window.extractProductData(container);
         console.log(`🔍 Product data extracted:`, productData);
         if (productData && productData.title && productData.title !== 'N/A' && productData.title.length > 0) {
+            // Check for duplicate ASIN
+            const asin = productData.asin;
+            if (asin && asin !== 'N/A' && seenAsins.has(asin)) {
+                console.log(`⏭️  Skipping duplicate product with ASIN: ${asin}`);
+                continue;
+            }
+            
+            // Add ASIN to seen set and add product
+            if (asin && asin !== 'N/A') {
+                seenAsins.add(asin);
+            }
+            
             products.push(productData);
             console.log(`✅ Product ${products.length}: ${productData.title.substring(0, 50)}...`);
-            console.log(`   Price: ${productData.price}, Rating: ${productData.rating}, Reviews: ${productData.reviews}`);
+            console.log(`   Price: ${productData.price}, Rating: ${productData.rating}, Reviews: ${productData.reviews}, ASIN: ${asin}`);
             
             // Send progress update
             if (onProgress) {
@@ -108,6 +121,7 @@ window.tryAlternativeMethod = function(maxProducts, onProgress) {
     console.log('🔄 Trying alternative scraping method...');
     
     const products = [];
+    const seenAsins = new Set(); // Track ASINs to prevent duplicates
     
     // Look for any elements that might contain product information
     const possibleContainers = document.querySelectorAll('div[data-asin], div[data-index], .s-item-container, .s-search-result, .s-result-item, [data-cy="asin-faceout-container"], [data-testid="product-card"], .puis-card-container, .AdHolder, .s-card-container');
@@ -131,8 +145,21 @@ window.tryAlternativeMethod = function(maxProducts, onProgress) {
         
         const productData = window.extractProductData(container);
         if (productData && productData.title && productData.title !== 'N/A' && productData.title.length > 5) {
+            // Check for duplicate ASIN
+            const asin = productData.asin;
+            if (asin && asin !== 'N/A' && seenAsins.has(asin)) {
+                console.log(`⏭️  Alt method - Skipping duplicate product with ASIN: ${asin}`);
+                continue;
+            }
+            
+            // Add ASIN to seen set and add product
+            if (asin && asin !== 'N/A') {
+                seenAsins.add(asin);
+            }
+            
             products.push(productData);
             console.log(`✅ Alt method - Product ${products.length}: ${productData.title.substring(0, 50)}...`);
+            console.log(`   ASIN: ${asin}`);
             
             // Send progress update
             if (onProgress) {
@@ -160,20 +187,33 @@ window.tryAlternativeMethod = function(maxProducts, onProgress) {
             
             const productData = window.extractProductData(container);
             if (productData && productData.title && productData.title !== 'N/A' && productData.title.length > 5) {
+                // Check for duplicate ASIN
+                const asin = productData.asin;
+                if (asin && asin !== 'N/A' && seenAsins.has(asin)) {
+                    console.log(`⏭️  Fallback - Skipping duplicate product with ASIN: ${asin}`);
+                    continue;
+                }
+                
+                // Add ASIN to seen set and add product
+                if (asin && asin !== 'N/A') {
+                    seenAsins.add(asin);
+                }
+                
                 products.push(productData);
                 console.log(`✅ Fallback - Product ${products.length}: ${productData.title.substring(0, 50)}...`);
+                console.log(`   ASIN: ${asin}`);
             }
         }
         
         if (products.length === 0) {
             console.log(`
-❌ Still no products found. Try these troubleshooting steps:
+            ❌ Still no products found. Try these troubleshooting steps:
 
-1. Make sure you're on an Amazon search results page
-2. Wait for the page to fully load
-3. Try scrolling down to load more products
-4. Check if you're logged in to Amazon
-5. Try running: debugAmazonPage() for more info
+            1. Make sure you're on an Amazon search results page
+            2. Wait for the page to fully load
+            3. Try scrolling down to load more products
+            4. Check if you're logged in to Amazon
+            5. Try running: debugAmazonPage() for more info
             `);
         }
     }
@@ -387,6 +427,45 @@ window.extractProductData = function(container) {
 
 
 
+// Count products on the page to prevent duplicates
+window.countAmazonProducts = function() {
+    console.log('🔍 Counting Amazon products on page...');
+    
+    // Try multiple selectors for different Amazon layouts
+    const selectors = [
+        '[data-component-type="s-search-result"]',
+        '.s-result-item[data-component-type="s-search-result"]',
+        '.s-result-item',
+        '[data-asin]:not([data-asin=""])',
+        '.s-card-container',
+        '.sg-col-inner .s-card-container',
+        '[data-cy="asin-faceout-container"]',
+        '[data-testid="product-card"]',
+        '.puis-card-container'
+    ];
+    
+    let productContainers = [];
+    
+    // Try each selector until we find products
+    for (const selector of selectors) {
+        productContainers = document.querySelectorAll(selector);
+        console.log(`Trying selector "${selector}": found ${productContainers.length} containers`);
+        if (productContainers.length > 0) break;
+    }
+    
+    // Filter out sponsored products
+    const nonSponsoredProducts = Array.from(productContainers).filter(container => !window.isSponsored(container));
+    
+    console.log(`✅ Found ${productContainers.length} total containers, ${nonSponsoredProducts.length} non-sponsored products`);
+    
+    return {
+        success: true,
+        productCount: nonSponsoredProducts.length,
+        totalContainers: productContainers.length,
+        nonSponsoredCount: nonSponsoredProducts.length
+    };
+};
+
 // Debug function to help troubleshoot
 window.debugAmazonPage = function() {
     console.log('🔍 Debugging Amazon page structure...');
@@ -515,6 +594,11 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       console.log('🔧 Calling debugAmazonPage...');
       const result = window.debugAmazonPage();
       console.log('🔧 Debug result:', result);
+      sendResponse(result);
+    } else if (req.callback === 'countAmazonProducts') {
+      console.log('🔧 Calling countAmazonProducts...');
+      const result = window.countAmazonProducts();
+      console.log('🔧 Count result:', result);
       sendResponse(result);
     } else if (req.callback === 'scrapeAmazonProducts') {
       console.log('🔧 Calling scrapeAmazonProducts...');
