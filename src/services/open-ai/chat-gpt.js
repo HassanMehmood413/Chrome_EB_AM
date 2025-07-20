@@ -1,7 +1,7 @@
 const ChatGpt = async (payload) => {
   const myHeaders = new Headers();
   myHeaders.append('Content-Type', 'application/json');
-  myHeaders.append('Authorization', '');
+  myHeaders.append('Authorization', `Bearer ${process.env.OPENAI_API_KEY}`);
 
   const raw = JSON.stringify(payload);
 
