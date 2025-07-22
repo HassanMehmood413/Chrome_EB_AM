@@ -971,51 +971,10 @@ const ProductPageDataBoxContent = ({ productTitle, inStock }) => {
         duration: 0
       });
       setIsAsinAlreadyListed(false);
-      const duplicateElement = document.getElementById('div-for-icons');
-      if (duplicateElement) duplicateElement.remove();
     }
   };
 
-  const DuplicateComponent = () => (
-    <div>
-      <div
-        style={{
-          width: '175px',
-          color: 'red',
-          fontWeight: 'bolder',
-          border: '1px solid red',
-          marginLeft: '339px',
-          textAlign: 'center',
-          borderRadius: '5px',
-          marginBottom: '4px'
-        }}
-      >
-        Already Listed
-      </div>
-      <Popconfirm
-        title='Delete the listing'
-        description='Are you sure to delete this listing?'
-        placement='left'
-        onConfirm={() => handleDeleteListing()}
-        okText='Yes'
-        cancelText='No'
-      >
-        <Button
-          style={{
-            width: '220px',
-            color: 'red',
-            fontWeight: 'bolder',
-            border: '1px solid red',
-            marginLeft: '339px',
-            textAlign: 'center',
-            borderRadius: '5px'
-          }}
-        >
-          Delete Ebay Listing 1-Click
-        </Button>
-      </Popconfirm>
-    </div>
-  );
+
 
   const checkAlreadyListed = async () => {
     try {
@@ -1031,14 +990,6 @@ const ProductPageDataBoxContent = ({ productTitle, inStock }) => {
       const { listingData, success } = alreadyListingData || {};
       if (success && listingData && Object.keys(listingData).length > 0) {
         setIsAsinAlreadyListed(true);
-
-        // const divForIcons = document.createElement('div');
-        // divForIcons.id = 'div-for-icons';
-
-        // const iconsRoot = createRoot(divForIcons);
-        // const productTitle = document.querySelector('span[id="productTitle"]');
-        // iconsRoot.render(<DuplicateComponent />);
-        // productTitle.parentNode.insertBefore(divForIcons, productTitle.nextSibling);
       } else {
         setIsAsinAlreadyListed(false);
       }
@@ -1107,20 +1058,7 @@ const ProductPageDataBoxContent = ({ productTitle, inStock }) => {
     }
   }, [userId]);
 
-  useEffect(() => {
-    if (isAsinAlreadyListed) {
-      const divForIcons = document.createElement('div');
-      divForIcons.id = 'div-for-icons';
 
-      const iconsRoot = createRoot(divForIcons);
-      const productTitle = document.querySelector('span[id="productTitle"]');
-      iconsRoot.render(<DuplicateComponent />);
-      productTitle.parentNode.insertBefore(
-        divForIcons,
-        productTitle.nextSibling
-      );
-    }
-  }, [isAsinAlreadyListed]);
 
   const toolOptions = [
     {
@@ -1265,6 +1203,50 @@ const ProductPageDataBoxContent = ({ productTitle, inStock }) => {
                     : 'Not on VeRO List'}
                 </span>
               </Button>
+            </div>
+            {/* Listing Status */}
+            <div className='mt-2 flex gap-2'>
+              {isAsinAlreadyListed ? (
+                <>
+                  {/* Already Listed Status */}
+                  <Button className='w-[40%] flex justify-start items-center gap-2 border border-red-500 bg-red-50 text-red-700 rounded-lg px-2 py-1 text-xs'>
+                    <img
+                      className='w-6 h-6 object-center object-contain'
+                      src='https://i.imgur.com/LaIYkA7.png'
+                      alt={'icon'}
+                    />
+                    <span>Already Listed</span>
+                  </Button>
+                  {/* Delete Listing Button */}
+                  <Popconfirm
+                    title='Delete the listing'
+                    description='Are you sure to delete this listing?'
+                    placement='left'
+                    onConfirm={() => handleDeleteListing()}
+                    okText='Yes'
+                    cancelText='No'
+                  >
+                    <Button className='w-[60%] flex justify-start items-center gap-2 border border-red-500 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg px-2 py-1 text-xs'>
+                      <img
+                        className='w-6 h-6 object-center object-contain'
+                        src='https://i.imgur.com/LaIYkA7.png'
+                        alt={'icon'}
+                      />
+                      <span>Delete Ebay Listing</span>
+                    </Button>
+                  </Popconfirm>
+                </>
+              ) : (
+                /* Not Currently Listed */
+                <Button className='w-full flex justify-start items-center gap-2 border border-green-500 bg-green-50 text-green-700 rounded-lg px-2 py-1 text-xs'>
+                  <img
+                    className='w-6 h-6 object-center object-contain'
+                    src='https://i.imgur.com/kluZUDS.png'
+                    alt={'icon'}
+                  />
+                  <span>Not Currently Listed</span>
+                </Button>
+              )}
             </div>
             {/* Images Row */}
             <div className='mt-3'>

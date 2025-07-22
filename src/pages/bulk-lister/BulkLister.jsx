@@ -12,6 +12,9 @@ import {
   Table,
   Tooltip,
   ConfigProvider,
+  Progress,
+  Card,
+  Statistic,
 } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -69,6 +72,15 @@ const BulkLister = () => {
   const [pauseLoading, setPauseLoading] = useState(null);
   const [terminateLoading, setTerminateLoading] = useState(null);
   const [reportModel, setReportModel] = useState(false);
+  
+  // New state for daily limits and time delays
+  const [dailyLimit, setDailyLimit] = useState(100);
+  const [timeDelay, setTimeDelay] = useState(2); // minutes
+  const [dailyProgress, setDailyProgress] = useState(0);
+  const [lastListingDate, setLastListingDate] = useState(null);
+  const [isWaitingDelay, setIsWaitingDelay] = useState(false);
+  const [nextListingTime, setNextListingTime] = useState(null);
+  const [countdown, setCountdown] = useState(0);
 
   const getStates = async () => {
     const minP = await getLocal("bulk-lister-min-price");
@@ -85,6 +97,45 @@ const BulkLister = () => {
 
     const ignoreVeroSetting = await getLocal("bulk-lister-ignore-vero");
     if (ignoreVeroSetting !== null) setIgnoreVero(ignoreVeroSetting);
+
+    // Load daily limit and time delay settings
+    const savedDailyLimit = await getLocal("bulk-lister-daily-limit");
+    if (savedDailyLimit !== null) setDailyLimit(savedDailyLimit);
+
+    const savedTimeDelay = await getLocal("bulk-lister-time-delay");
+    if (savedTimeDelay !== null) setTimeDelay(savedTimeDelay);
+
+    // Check for daily reset first
+    const today = new Date().toDateString();
+    const savedLastDate = await getLocal("bulk-lister-last-date");
+    
+    console.log('🗓️ Daily Reset Check:', { today, savedLastDate, isNewDay: savedLastDate !== today });
+    
+    if (savedLastDate !== today) {
+      // It's a new day - reset everything
+      console.log('🆕 New day detected - resetting daily progress to 0');
+      setDailyProgress(0);
+      await setLocal(`bulk-lister-daily-progress-${today}`, 0);
+      await setLocal("bulk-lister-last-date", today);
+      
+      // Clean up previous day's data
+      if (savedLastDate) {
+        await setLocal(`bulk-lister-daily-progress-${savedLastDate}`, null);
+      }
+    } else {
+      // Same day - load existing progress
+      const savedProgress = await getLocal(`bulk-lister-daily-progress-${today}`);
+      console.log('📊 Loading today\'s progress:', savedProgress);
+      if (savedProgress !== null) {
+        setDailyProgress(savedProgress);
+      } else {
+        // First time today - initialize to 0
+        setDailyProgress(0);
+        await setLocal(`bulk-lister-daily-progress-${today}`, 0);
+      }
+    }
+    
+    setLastListingDate(today);
 
     // Check for URLs from product hunter
     const urlsFromHunter = await getLocal("bulk-lister-urls");
@@ -115,6 +166,25 @@ const BulkLister = () => {
 
   useEffect(() => {
     getStates();
+  }, []);
+  
+  // Check for daily reset when page becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (!document.hidden) {
+        console.log('👀 Page became visible - checking for daily reset');
+        await checkDailyReset();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Also check on component mount
+    checkDailyReset();
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -174,24 +244,46 @@ const BulkLister = () => {
   };
 
   const processLinks = async () => {
+    // Check daily limit before starting
+    if (hasReachedDailyLimit()) {
+      notification.warning({
+        message: "Daily Limit Reached",
+        description: `You have reached your daily limit of ${dailyLimit} listings. Come back tomorrow to continue.`,
+      });
+      return;
+    }
+
     await setLocal("is-bulk-listing", true);
     setIsListing(true);
     let localIndex = position;
+    let dailyCount = 0;
+    
     while (localIndex < linksRef.current.length) {
+      // Check daily limit before each listing
+      if (hasReachedDailyLimit()) {
+        notification.success({
+          message: "Daily Limit Reached",
+          description: `Processed ${dailyCount} items today. Daily limit of ${dailyLimit} reached. Listing will resume tomorrow.`,
+        });
+        break;
+      }
+
       const status = await processLink(localIndex);
+      
       if (status === "paused") {
         await setLocal("is-bulk-listing", false);
         setPauseLoading(false);
         setIsListing(false);
         return;
       }
+      
       if (status === "terminated") {
         setTerminateLoading(false);
         break;
       }
+      
       if (status === "error") {
         const error = await getLocal("listing-error");
-        // state issue
         const currentReport = reportRef.current;
         setReport([
           ...currentReport,
@@ -202,25 +294,82 @@ const BulkLister = () => {
           },
         ]);
       }
+      
       if (status === "success") {
         const currentReport = reportRef.current;
+        
+        // Check if listing was properly saved to database
+        const savedToDb = await getLocal('listing-saved-to-db');
+        const dbError = await getLocal('listing-db-error');
+        
+        let dbStatus = 'Listed';
+        let statusColor = 'green';
+        
+        if (savedToDb === true) {
+          dbStatus = 'Listed & Saved to DB';
+          statusColor = 'green';
+        } else if (savedToDb === false) {
+          dbStatus = 'Listed (DB Save Failed)';
+          statusColor = 'orange';
+        } else {
+          dbStatus = 'Listed (DB Status Unknown)';
+          statusColor = 'blue';
+        }
+        
         setReport([
           ...currentReport,
           {
             link: linksRef.current[localIndex],
-            status: "Listed",
+            status: dbStatus,
+            statusColor,
+            dbSaved: savedToDb,
+            error: savedToDb === false ? (dbError || 'Database save failed') : null
           },
         ]);
+        
+        // Clear the database save status
+        await setLocal('listing-saved-to-db', null);
+        await setLocal('listing-db-error', null);
+        
+        // Update daily progress for successful listings
+        await updateDailyProgress(1);
+        dailyCount++;
+        
+        // Wait for delay after successful listing (except for the last item)
+        if (localIndex < linksRef.current.length - 1 && !hasReachedDailyLimit()) {
+          await waitForDelay();
+        }
       }
+      
       localIndex += 1;
       setPosition((prevIndex) => prevIndex + 1);
+      
+      // Don't remove items from queue, just move position forward
+      // This way users can see the full queue and what's been processed
     }
 
     await setLocal("is-bulk-listing", false);
-    // await setLocal('processing-link', '');
     setIsListing(false);
-    setPosition(0);
-    setLinks([]);
+    
+    // Show completion message with database stats
+    const totalProcessed = reportRef.current.length;
+    const dbSaveSuccesses = reportRef.current.filter(r => r.dbSaved === true).length;
+    const dbSaveFailures = reportRef.current.filter(r => r.dbSaved === false).length;
+    
+    if (linksRef.current.length === 0) {
+      notification.success({
+        message: "Queue Complete",
+        description: `All items processed. Listed: ${dailyCount}, DB Saved: ${dbSaveSuccesses}, DB Failed: ${dbSaveFailures}`,
+        duration: 10
+      });
+      setPosition(0);
+    } else if (hasReachedDailyLimit()) {
+      notification.info({
+        message: "Queue Paused - Daily Limit Reached",
+        description: `Listed: ${dailyCount}, DB Saved: ${dbSaveSuccesses}, DB Failed: ${dbSaveFailures}. ${linksRef.current.length} items remain for tomorrow.`,
+        duration: 10
+      });
+    }
   };
 
   const handleListClick = () => {
@@ -264,6 +413,105 @@ const BulkLister = () => {
   const handleIgnoreVeroChange = async (value) => {
     setIgnoreVero(value);
     await setLocal("bulk-lister-ignore-vero", value);
+  };
+
+  const handleDailyLimitChange = async (value) => {
+    setDailyLimit(value);
+    await setLocal("bulk-lister-daily-limit", value);
+  };
+
+  const handleTimeDelayChange = async (value) => {
+    setTimeDelay(value);
+    await setLocal("bulk-lister-time-delay", value);
+  };
+
+  const updateDailyProgress = async (increment = 1) => {
+    const today = new Date().toDateString();
+    
+    // Double-check for daily reset before updating
+    const savedLastDate = await getLocal("bulk-lister-last-date");
+    if (savedLastDate !== today) {
+      console.log('⚠️ Daily reset detected during progress update - resetting first');
+      await checkDailyReset();
+      return;
+    }
+    
+    const newProgress = Math.min(dailyProgress + increment, dailyLimit); // Cap at daily limit
+    console.log('📊 Updating daily progress:', { current: dailyProgress, increment, new: newProgress, limit: dailyLimit });
+    
+    setDailyProgress(newProgress);
+    await setLocal(`bulk-lister-daily-progress-${today}`, newProgress);
+  };
+
+  const hasReachedDailyLimit = () => {
+    return dailyProgress >= dailyLimit;
+  };
+
+  const getRemainingListings = () => {
+    return Math.max(0, dailyLimit - dailyProgress);
+  };
+  
+  const checkDailyReset = async () => {
+    const today = new Date().toDateString();
+    const savedLastDate = await getLocal("bulk-lister-last-date");
+    
+    console.log('🔄 Checking daily reset:', { today, savedLastDate, isNewDay: savedLastDate !== today });
+    
+    if (savedLastDate !== today) {
+      console.log('🆕 Daily reset triggered - resetting progress to 0');
+      setDailyProgress(0);
+      setLastListingDate(today);
+      await setLocal(`bulk-lister-daily-progress-${today}`, 0);
+      await setLocal("bulk-lister-last-date", today);
+      
+      // Show reset notification
+      notification.info({
+        message: "Daily Reset",
+        description: "Daily listing progress has been reset for the new day.",
+        duration: 4
+      });
+    }
+  };
+  
+  const handleManualReset = async () => {
+    const today = new Date().toDateString();
+    setDailyProgress(0);
+    await setLocal(`bulk-lister-daily-progress-${today}`, 0);
+    
+    notification.success({
+      message: "Manual Reset Complete",
+      description: "Daily progress has been manually reset to 0.",
+      duration: 3
+    });
+  };
+
+  const waitForDelay = async () => {
+    if (timeDelay <= 0) return;
+    
+    setIsWaitingDelay(true);
+    const delayMs = timeDelay * 60 * 1000; // Convert minutes to milliseconds
+    const nextTime = new Date(Date.now() + delayMs);
+    setNextListingTime(nextTime);
+    
+    // Update countdown every second
+    const countdownInterval = setInterval(() => {
+      const now = new Date();
+      const remaining = Math.max(0, Math.ceil((nextTime - now) / 1000));
+      setCountdown(remaining);
+      
+      if (remaining <= 0) {
+        clearInterval(countdownInterval);
+        setIsWaitingDelay(false);
+        setNextListingTime(null);
+        setCountdown(0);
+      }
+    }, 1000);
+    
+    await sleep(timeDelay * 60); // Wait for the delay period
+    clearInterval(countdownInterval);
+    setIsWaitingDelay(false);
+    setNextListingTime(null);
+    setCountdown(0);
   };
 
   const handlePause = async () => {
@@ -335,6 +583,14 @@ const BulkLister = () => {
       title: "Status",
       dataIndex: "status",
       width: 30,
+      render: (value, record) => {
+        const color = record.statusColor || 'black';
+        return (
+          <span style={{ color }}>
+            {value}
+          </span>
+        );
+      },
     },
     {
       key: "Error",
@@ -377,11 +633,11 @@ const BulkLister = () => {
             <div className="font-medium flex flex-wrap gap-3 mt-2">
               <PageBtn
                 variant="blue"
-                disabled={!links.length || isPaused}
+                disabled={!links.length || isPaused || hasReachedDailyLimit()}
                 loading={isListing}
                 onClick={handleListClick}
               >
-                List
+                {hasReachedDailyLimit() ? "Daily Limit Reached" : "List"}
               </PageBtn>
               <PageBtn
                 disabled={!isListing || isPaused}
@@ -411,6 +667,98 @@ const BulkLister = () => {
                 Reset & Terminate
               </PageBtn>
             </div>
+            {/* Daily Limit and Time Delay Controls */}
+            <Card className="mt-4 bg-blue-50 border-blue-200">
+              <div className="mb-4">
+                <h4 className="font-semibold text-blue-800 mb-3">Daily Listing Controls</h4>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium">Daily Limit:</span>
+                    <InputNumber
+                      min={1}
+                      max={1000}
+                      value={dailyLimit}
+                      onChange={handleDailyLimitChange}
+                      className={styles.numInput}
+                      placeholder="100"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium">Delay (minutes):</span>
+                    <InputNumber
+                      min={0}
+                      max={60}
+                      value={timeDelay}
+                      onChange={handleTimeDelayChange}
+                      className={styles.numInput}
+                      placeholder="2"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium">Today's Progress:</span>
+                    <div className="text-lg font-bold text-blue-600">
+                      {dailyProgress} / {dailyLimit}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium">Remaining Today:</span>
+                    <div className="text-lg font-bold text-green-600">
+                      {getRemainingListings()}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium">Reset:</span>
+                    <PageBtn
+                      variant="red"
+                      size="small"
+                      onClick={handleManualReset}
+                      disabled={isListing}
+                    >
+                      Reset Daily
+                    </PageBtn>
+                  </div>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className="mt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-medium">Daily Progress</span>
+                    <span className="text-sm text-gray-600">
+                      {Math.round((dailyProgress / dailyLimit) * 100)}%
+                    </span>
+                  </div>
+                  <Progress 
+                    percent={Math.round((dailyProgress / dailyLimit) * 100)}
+                    status={hasReachedDailyLimit() ? "success" : "active"}
+                    strokeColor={hasReachedDailyLimit() ? "#52c41a" : "#1890ff"}
+                  />
+                </div>
+                
+                {/* Countdown Timer */}
+                {isWaitingDelay && nextListingTime && (
+                  <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-yellow-800">
+                        Next listing in: 
+                      </span>
+                      <span className="text-sm font-bold text-yellow-900">
+                        {countdown > 60 ? `${Math.floor(countdown / 60)}m ${countdown % 60}s` : `${countdown}s`}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Debug Info */}
+                <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600">
+                  <div>Today: {new Date().toDateString()}</div>
+                  <div>Last Reset: {lastListingDate || 'Never'}</div>
+                  <div>Limit Reached: {hasReachedDailyLimit() ? 'Yes' : 'No'}</div>
+                  <div>Storage Key: bulk-lister-daily-progress-{new Date().toDateString()}</div>
+                </div>
+              </div>
+            </Card>
+            
+            {/* Price and Other Filters */}
             <div className="flex gap-4 flex-wrap mt-4">
               <div className="flex items-center gap-2">
                 <span>Min Price: </span>
@@ -447,7 +795,7 @@ const BulkLister = () => {
                 </Checkbox>
               </div>
             </div>
-            <div className="mt-4 flex justify-between">
+            <div className="mt-4 flex justify-between items-center">
               <Checkbox
                 checked={closeListing}
                 onChange={async (ee) =>
@@ -456,11 +804,40 @@ const BulkLister = () => {
               >
                 Close Errored Listing
               </Checkbox>
-              <p>
-                {links.length ? round((position / links.length) * 100, 2) : 0}%
-                - Total Progress
-              </p>
+              
+              {/* Queue Status */}
+              <div className="flex gap-6 items-center">
+                <div className="text-center">
+                  <div className="text-sm text-gray-600">Queue Progress</div>
+                  <div className="text-lg font-bold">
+                    {position} / {links.length}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm text-gray-600">Remaining</div>
+                  <div className="text-lg font-bold text-orange-600">
+                    {Math.max(0, links.length - position)}
+                  </div>
+                </div>
+              </div>
             </div>
+            
+            {/* Queue Progress Bar */}
+            {links.length > 0 && (
+              <div className="mt-3">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium">Queue Progress</span>
+                  <span className="text-sm text-gray-600">
+                    {links.length ? round((position / links.length) * 100, 2) : 0}%
+                  </span>
+                </div>
+                <Progress 
+                  percent={links.length ? round((position / links.length) * 100, 2) : 0}
+                  status="active"
+                  strokeColor="#722ed1"
+                />
+              </div>
+            )}
             <div>
               <div className="flex justify-between items-center">
                 <h3 className="font-medium mt-6 mb-2">

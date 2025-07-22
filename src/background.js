@@ -48,8 +48,8 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
 });
 
-const PATIOM_PRODUCT_API_URL = 'https://patiom-extension-api.vercel.app'; // production
-// const PATIOM_PRODUCT_API_URL = 'http://localhost:3000'; // local
+// const PATIOM_PRODUCT_API_URL = 'https://patiom-extension-api.vercel.app'; // production
+const PATIOM_PRODUCT_API_URL = 'http://localhost:3000'; // local
 
 const loginUser = async ({ email, password }) => {
   const myHeaders = new Headers();
@@ -237,7 +237,8 @@ const updateUserStatus = async ({ userId, status }) => {
 const addListing = async ({
   listingId,
   asin,
-  sku
+  sku,
+  draftId
 }) => {
   const token = await getLocal('user-token');
 
@@ -248,7 +249,8 @@ const addListing = async ({
   const raw = JSON.stringify({
     listingId,
     asin,
-    sku
+    sku,
+    draftId
   });
 
   const requestOptions = {
@@ -262,10 +264,16 @@ const addListing = async ({
   response = await response.json();
 
   if (response?.success) {
+    // Store successful database save status
+    await setLocal('listing-saved-to-db', true);
+    console.log('✅ Listing successfully saved to database');
     return {
       success: true
     };
   } else {
+    // Store failed database save status
+    await setLocal('listing-saved-to-db', false);
+    console.error('❌ Failed to save listing to database:', response.message || response.error);
     return {
       success: false,
       error: response.message || response.error
@@ -586,12 +594,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.callback === 'addListing') {
       (async () => {
         try {
+          console.log('💾 Background: Attempting to save listing to database:', request.payload);
           const response = await addListing(request.payload);
+          console.log('💾 Background: Database response:', response);
           sendResponse(response);
         } catch (error) {
+          console.error('💾 Background: Database save error:', error);
           sendResponse({
             success: false,
-            error: error.message
+            error: error.message || 'Database communication failed'
           });
         }
       })();

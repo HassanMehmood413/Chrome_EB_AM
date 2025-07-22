@@ -21,6 +21,7 @@ module.exports = (env, options) => {
       ebay_scan_listing_script: path.join(__dirname, 'src', 'content-scripts', 'ebay', 'scan-listings.js'),
       ebay_single_product_script: path.join(__dirname, 'src', 'content-scripts', 'ebay', 'single-product-page.js'),
       ebay_boost_listing_script: path.join(__dirname, 'src', 'content-scripts', 'ebay', 'boost-listing.js'),
+      ebay_inject_view_sku_script: path.join(__dirname, 'src', 'content-scripts', 'ebay', 'inject-view-sku.js'),
       ebay_revise_listing_script: path.join(__dirname, 'src', 'content-scripts', 'ebay', 'revise-listing.js'),
       ebay_tracking_script: path.join(__dirname, 'src', 'content-scripts', 'ebay', 'tracking.js'),
       background: "./src/background.js",

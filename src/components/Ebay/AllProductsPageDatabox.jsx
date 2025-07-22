@@ -372,17 +372,17 @@ const ProductPageIconsDataBox = ({ storeName, productId, dataToBeCopied }) => {
                   }
                   
                   if (asin) {
-                    // Get user domain settings
-                    const userId = await getLocal("current-user");
+                    // Use the handleSearchClick logic from magnifying glass
+                    console.log('🚀 ~ ASIN:', asin);
+                    const userId = await getLocal('current-user');
                     const domain = await getLocal(`selected-domain-${userId}`);
-                    
-                    let amazonLink = "https://www.amazon.com";
-                    if (domain === "UK") {
-                      amazonLink = "https://www.amazon.co.uk";
+
+                    let amazonLink = 'https://www.amazon.com';
+                    if (domain === 'UK') {
+                      amazonLink = 'https://www.amazon.co.uk';
                     }
-                    
-                    // Open Amazon product page
-                    window.open(`${amazonLink}/dp/${asin}`, "_blank");
+
+                    window.open(`${amazonLink}/dp/${asin}`, '_blank');
                   } else {
                     // Fallback: search Amazon with the product title
                     const searchQuery = encodeURIComponent(dataToBeCopied.title || '');

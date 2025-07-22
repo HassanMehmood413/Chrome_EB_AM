@@ -29,7 +29,8 @@
   "host_permissions": [
     "https://www.amazon.com/*",
     "https://www.amazon.co.uk/*",
-    "https://www.amazon.*/*"
+    "https://www.amazon.*/*",
+    "http://localhost:3000/*"
   ],
   "content_scripts": [
     {
@@ -92,7 +93,8 @@
       "js": [
         "ebay_scan_listing_script.bundle.js",
         "ebay_boost_listing_script.bundle.js",
-        "ebay_tracking_script.bundle.js"
+        "ebay_tracking_script.bundle.js",
+        "ebay_inject_view_sku_script.bundle.js"
       ]
     },
     {

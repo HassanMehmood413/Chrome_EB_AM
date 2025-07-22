@@ -2210,14 +2210,32 @@ const listProduct = async () => {
             let listingId = document.querySelector('.success__body-item-id')?.innerText || '';
             listingId = listingId?.split('-')?.[1] || '';
 
-            await chrome.runtime.sendMessage({
-              payload: {
-                listingId,
-                asin,
-                sku
-              },
-              callback: 'addListing'
-            });
+            // Save listing to database
+            console.log('🔄 Attempting to save listing to database:', { listingId, draftId, asin, sku });
+            try {
+              const dbResponse = await chrome.runtime.sendMessage({
+                payload: {
+                  listingId,
+                  draftId,
+                  asin,
+                  sku
+                },
+                callback: 'addListing'
+              });
+              
+              if (dbResponse?.success) {
+                console.log('✅ Listing successfully saved to database');
+                await setLocal('listing-saved-to-db', true);
+              } else {
+                console.error('❌ Failed to save listing to database:', dbResponse?.error);
+                await setLocal('listing-saved-to-db', false);
+                await setLocal('listing-db-error', dbResponse?.error || 'Unknown database error');
+              }
+            } catch (error) {
+              console.error('❌ Database save error:', error);
+              await setLocal('listing-saved-to-db', false);
+              await setLocal('listing-db-error', error.message);
+            }
             // close tab once everything is done
             await chrome.runtime.sendMessage({
               callback: 'closeTab'
@@ -2272,14 +2290,36 @@ const listProduct = async () => {
           let listingId = document.querySelector('.success__body-item-id')?.innerText || '';
           listingId = listingId?.split('-')?.[1] || '';
 
-          await chrome.runtime.sendMessage({
-            payload: {
-              listingId,
-              asin,
-              sku
-            },
-            callback: 'addListing'
-          });
+          // Extract draftId from URL if available
+          const urlParams = new URLSearchParams(window.location.search);
+          const sellSimilarDraftId = urlParams.get('draftId');
+          
+          // Save sell-similar listing to database
+          console.log('🔄 Attempting to save sell-similar listing to database:', { listingId, draftId: sellSimilarDraftId, asin, sku });
+          try {
+            const dbResponse = await chrome.runtime.sendMessage({
+              payload: {
+                listingId,
+                draftId: sellSimilarDraftId,
+                asin,
+                sku
+              },
+              callback: 'addListing'
+            });
+            
+            if (dbResponse?.success) {
+              console.log('✅ Sell-similar listing successfully saved to database');
+              await setLocal('listing-saved-to-db', true);
+            } else {
+              console.error('❌ Failed to save sell-similar listing to database:', dbResponse?.error);
+              await setLocal('listing-saved-to-db', false);
+              await setLocal('listing-db-error', dbResponse?.error || 'Unknown database error');
+            }
+          } catch (error) {
+            console.error('❌ Sell-similar database save error:', error);
+            await setLocal('listing-saved-to-db', false);
+            await setLocal('listing-db-error', error.message);
+          }
 
           // close tab once everything is done
           await chrome.runtime.sendMessage({

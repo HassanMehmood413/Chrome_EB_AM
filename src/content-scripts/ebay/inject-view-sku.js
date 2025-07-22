@@ -19,12 +19,6 @@
       // Try to get the SKU or unique identifier
       // (You may want to use a data attribute or another cell)
       // For now, use the title as the key
-      // Try to get the Amazon URL from localStorage or chrome.storage
-      let amazonUrl = null;
-      try {
-        const mapping = JSON.parse(localStorage.getItem('ebay-to-amazon-mapping') || '{}');
-        amazonUrl = mapping[title];
-      } catch (e) {}
       // Create the button
       const btn = document.createElement('button');
       btn.textContent = 'View SKU';
@@ -35,12 +29,58 @@
       btn.style.border = 'none';
       btn.style.padding = '4px 10px';
       btn.style.borderRadius = '4px';
-      btn.style.cursor = amazonUrl ? 'pointer' : 'not-allowed';
-      btn.disabled = !amazonUrl;
-      btn.title = amazonUrl ? 'View on Amazon' : 'No Amazon link found';
-      btn.onclick = (e) => {
+      btn.style.cursor = 'pointer';
+      btn.title = 'View on Amazon';
+      btn.onclick = async (e) => {
         e.stopPropagation();
-        if (amazonUrl) window.open(amazonUrl, '_blank');
+        try {
+          // Try to get the SKU from the listing row
+          const skuCell = row.querySelector('[data-testid="custom-label"], .custom-label, input[name="customLabel"]');
+          let asin = null;
+          
+          if (skuCell && skuCell.value) {
+            const sku = skuCell.value;
+            console.log('Found SKU:', sku);
+            
+            // Convert SKU to ASIN (base64 decode)
+            try {
+              asin = atob(sku);
+              console.log('Decoded ASIN:', asin);
+            } catch (error) {
+              console.error('Error decoding SKU to ASIN:', error);
+            }
+          }
+          
+          if (asin) {
+            // Get user domain settings from chrome.storage
+            const userId = await chrome.storage.local.get('current-user');
+            const domain = await chrome.storage.local.get(`selected-domain-${userId.current-user}`);
+            
+            let amazonLink = 'https://www.amazon.com';
+            if (domain[`selected-domain-${userId.current-user}`] === 'UK') {
+              amazonLink = 'https://www.amazon.co.uk';
+            }
+            
+            window.open(`${amazonLink}/dp/${asin}`, '_blank');
+          } else {
+            // Fallback: search Amazon with the product title
+            const searchQuery = encodeURIComponent(title || '');
+            const userId = await chrome.storage.local.get('current-user');
+            const domain = await chrome.storage.local.get(`selected-domain-${userId.current-user}`);
+            
+            let amazonLink = 'https://www.amazon.com';
+            if (domain[`selected-domain-${userId.current-user}`] === 'UK') {
+              amazonLink = 'https://www.amazon.co.uk';
+            }
+            
+            window.open(`${amazonLink}/s?k=${searchQuery}`, '_blank');
+          }
+        } catch (error) {
+          console.error('Error opening Amazon SKU:', error);
+          // Fallback to title search
+          const searchQuery = encodeURIComponent(title || '');
+          window.open(`https://www.amazon.com/s?k=${searchQuery}`, '_blank');
+        }
       };
       // Inject the button after the title
       titleCell.parentElement.appendChild(btn);

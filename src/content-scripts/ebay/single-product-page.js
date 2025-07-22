@@ -1,6 +1,6 @@
 
 import { createRoot } from 'react-dom/client';
-import { SearchOutlined } from '@material-ui/icons';
+
 import { Buffer } from 'buffer';
 import { Tooltip } from 'antd';
 
@@ -96,22 +96,7 @@ const singleProductPage = async () => {
         const newDiv = document.createElement('div');
         newDiv.id = 'search-listing-link';
         newDiv.style.width = '30px';
-        const root = createRoot(newDiv);
-        root.render(
-          <Tooltip
-            title='Go to Amazon'
-          >
-            <SearchOutlined
-              style={{
-                cursor: 'pointer',
-                fill: 'blue',
-                fontSize: '30px'
-              }}
-              onClick={() => handleSearchClick(asin)}
-            />
-          </Tooltip>
-        );
-        titleDiv?.append(newDiv);
+
       }
 
     }
