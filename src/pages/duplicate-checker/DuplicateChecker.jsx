@@ -128,16 +128,13 @@ const DuplicateChecker = () => {
 
 
   const asinToSku = (asin) => {
-    // Convert the ASIN to Base64
-    const buffer = Buffer.from(asin, 'utf-8');
-    const base64 = buffer.toString('base64');
-    return base64.replace(/=+$/, ''); // Remove padding "="
+    // Convert the ASIN to Base64 (browser-compatible)
+    return btoa(asin).replace(/=+$/, ''); // Remove padding "="
   };
 
   const skuToAsin = (sku) => {
     try {
-      const buffer = Buffer.from(sku, 'base64');
-      return buffer.toString('utf-8');
+      return atob(sku);
     } catch (error) {
       console.error('Error decoding SKU:', error);
       return null; // Return null if decoding fails

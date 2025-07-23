@@ -965,7 +965,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         console.log('\n not on a supported Amazon page (product or search)');
       }
     } else if (originUrl.includes('www.ebay.')) {
-      const regex = /^https:\/\/www\.ebay\.(com|co\.uk)\/sch/;
+      const regex = /^https:\/\/www\.ebay\.(com|co\.uk)\/(sch|str)/;
       const isMatch = regex.test(originUrl);
       if (isMatch) {
         console.log('\n going to run Ebay content script');

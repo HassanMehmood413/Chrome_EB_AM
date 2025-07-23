@@ -36,8 +36,7 @@ const setInput = (element, value) => {
 
 const skuToAsin = (sku) => {
   try {
-    const buffer = Buffer.from(sku, 'base64');
-    return buffer.toString('utf-8');
+    return atob(sku);
   } catch (error) {
     console.error('Error decoding SKU:', error);
     return null; // Return null if decoding fails

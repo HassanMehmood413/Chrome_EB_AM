@@ -356,7 +356,7 @@ const ProductPageIconsDataBox = ({ storeName, productId, dataToBeCopied }) => {
                   const sku = skuElement.value;
                   console.log('Found SKU:', sku);
                   
-                  // Convert SKU to ASIN (base64 decode)
+                  // Convert SKU to ASIN using browser-compatible function
                   let asin = '';
                   try {
                     asin = atob(sku);

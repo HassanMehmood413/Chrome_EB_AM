@@ -21,7 +21,7 @@ export const ebayOverlayOptions = {
     },
     searchTitleSold: {
         label: 'Search Title (Sold)',
-        icon: "https://i.imgur.com/DnYzPkD.png"
+        icon: "https://static.vecteezy.com/system/resources/previews/020/336/172/non_2x/ebay-logo-ebay-icon-free-free-vector.jpg"
     },
     amazon: {
         label: 'Search on Amazon',

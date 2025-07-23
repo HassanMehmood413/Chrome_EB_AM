@@ -52,8 +52,7 @@ const handleSearchClick = async (asin) => {
 
 const skuToAsin = (sku) => {
   try {
-    const buffer = Buffer.from(sku, 'base64');
-    return buffer.toString('utf-8');
+    return atob(sku);
   } catch (error) {
     console.error('Error decoding SKU:', error);
     return null; // Return null if decoding fails
@@ -93,10 +92,49 @@ const singleProductPage = async () => {
         const asin = skuToAsin(sku);
         const titleDiv = document.querySelector('div[data-testid="x-item-title"]');
         console.log('🚀 ~ file: single-product-page.js:23 ~ titleDiv:', titleDiv);
-        const newDiv = document.createElement('div');
-        newDiv.id = 'search-listing-link';
-        newDiv.style.width = '30px';
-
+        
+        if (titleDiv && asin) {
+          const newDiv = document.createElement('div');
+          newDiv.id = 'search-listing-link';
+          newDiv.style.width = '30px';
+          newDiv.style.marginLeft = '10px';
+          newDiv.style.display = 'inline-block';
+          
+          const btn = document.createElement('button');
+          btn.textContent = 'View SKU';
+          btn.style.background = '#232f3e';
+          btn.style.color = 'white';
+          btn.style.border = 'none';
+          btn.style.padding = '4px 10px';
+          btn.style.borderRadius = '4px';
+          btn.style.cursor = 'pointer';
+          btn.style.fontSize = '12px';
+          btn.title = 'View on Amazon';
+          
+          btn.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+              // Get user domain settings
+              const userId = await chrome.storage.local.get('current-user');
+              const domain = await chrome.storage.local.get(`selected-domain-${userId.current-user}`);
+              
+              let amazonLink = 'https://www.amazon.com';
+              if (domain[`selected-domain-${userId.current-user}`] === 'UK') {
+                amazonLink = 'https://www.amazon.co.uk';
+              }
+              
+              window.open(`${amazonLink}/dp/${asin}`, '_blank');
+            } catch (error) {
+              console.error('Error opening Amazon SKU:', error);
+              // Fallback to title search
+              const searchQuery = encodeURIComponent(title || '');
+              window.open(`https://www.amazon.com/s?k=${searchQuery}`, '_blank');
+            }
+          };
+          
+          newDiv.appendChild(btn);
+          titleDiv.appendChild(newDiv);
+        }
       }
 
     }
@@ -127,31 +165,39 @@ const singleProductPage = async () => {
     // }
 
 
-    const storeUrl = document.querySelector('.x-sellercard-atf__info__about-seller a').href;
+    const storeUrlElement = document.querySelector('.x-sellercard-atf__info__about-seller a');
+    if (!storeUrlElement) {
+      console.log('Store URL element not found');
+      return;
+    }
+    const storeUrl = storeUrlElement.href;
     const storeName = getEbaySellerUsername(storeUrl);
-    // const sellerCards = document.querySelectorAll('.x-sellercard-atf__data-item');
-    // let sellerName = '';
-    // for (let i = 0; i < sellerCards.length; i++) {
-    //   const sellerCard = sellerCards[i];
-    //   if (sellerCard.innerText.includes('Contact Seller')) {
-    //     const link = sellerCard.querySelector('a').href;
-    //     console.log('🚀 ~ file: single-product-page.js:154 ~ link:', link);
-    //     const parsedUrl = new URL(link);
-    //     console.log('🚀 ~ file: single-product-page.js:156 ~ parsedUrl:', parsedUrl);
-
-    //   }
-    // }
+    
     let sellerCards = document.querySelectorAll('.x-sellercard-atf__data-item');
     sellerCards = [...sellerCards];
     const contactDiv = sellerCards.find(item => item.innerText.includes('Contact seller'));
-    const link = contactDiv.querySelector('a').href;
+    if (!contactDiv) {
+      console.log('Contact seller div not found');
+      return;
+    }
+    const linkElement = contactDiv.querySelector('a');
+    if (!linkElement) {
+      console.log('Contact seller link not found');
+      return;
+    }
+    const link = linkElement.href;
     console.log('🚀 ~ file: single-product-page.js:154 ~ link:', link);
     const parsedUrl = new URL(link);
     console.log('🚀 ~ file: single-product-page.js:156 ~ parsedUrl:', parsedUrl);
     const sellerName = parsedUrl.searchParams.get('requested');
 
     const prouctLink = window.location.href;
-    const productId = prouctLink.match(/\/(\d+)(?:\?|\b)/)[1];
+    const productIdMatch = prouctLink.match(/\/(\d+)(?:\?|\b)/);
+    if (!productIdMatch) {
+      console.log('Product ID not found in URL');
+      return;
+    }
+    const productId = productIdMatch[1];
 
     const title = document.querySelector('.x-item-title__mainTitle')?.innerText;
 

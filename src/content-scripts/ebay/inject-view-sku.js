@@ -1,6 +1,16 @@
 // Injects a 'View SKU' button into each eBay Active Listings row
 
 (function() {
+  // Add the skuToAsin function for consistent decoding (browser-compatible)
+  const skuToAsin = (sku) => {
+    try {
+      return atob(sku);
+    } catch (error) {
+      console.error('Error decoding SKU:', error);
+      return null; // Return null if decoding fails
+    }
+  };
+
   function waitForTableAndInject() {
     // eBay Active Listings table selector (update if needed)
     const table = document.querySelector('table[role="grid"]');
@@ -34,20 +44,19 @@
       btn.onclick = async (e) => {
         e.stopPropagation();
         try {
-          // Try to get the SKU from the listing row
-          const skuCell = row.querySelector('[data-testid="custom-label"], .custom-label, input[name="customLabel"]');
+          // Try to get the SKU from the listing row - check both input fields and table cells
+          const skuCell = row.querySelector('[data-testid="custom-label"], .custom-label, input[name="customLabel"], .shui-dt-column__listingSKU');
           let asin = null;
           
-          if (skuCell && skuCell.value) {
-            const sku = skuCell.value;
-            console.log('Found SKU:', sku);
-            
-            // Convert SKU to ASIN (base64 decode)
-            try {
-              asin = atob(sku);
+          if (skuCell) {
+            // Handle both input fields (value) and table cells (innerText)
+            const sku = skuCell.value || skuCell.innerText || '';
+            if (sku) {
+              console.log('Found SKU:', sku);
+              
+              // Convert SKU to ASIN using the proper function
+              asin = skuToAsin(sku);
               console.log('Decoded ASIN:', asin);
-            } catch (error) {
-              console.error('Error decoding SKU to ASIN:', error);
             }
           }
           
