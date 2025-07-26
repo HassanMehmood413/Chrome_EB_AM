@@ -236,7 +236,7 @@ const PopUp = () => {
       Component: BulkLister
     },
     {
-      label: 'Scanner',
+      label: 'Saved Seller',
       link: 'competitor-search.html',
       Component: CompetitorScanner
     },

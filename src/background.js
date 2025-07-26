@@ -966,7 +966,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       }
     } else if (originUrl.includes('www.ebay.')) {
       const regex = /^https:\/\/www\.ebay\.(com|co\.uk)\/(sch|str)/;
-      const isMatch = regex.test(originUrl);
+      const isMatch = regex.test(url);
       if (isMatch) {
         console.log('\n going to run Ebay content script');
 
@@ -975,7 +975,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
           files: ['ebay_all_products_page.bundle.js']
         });
       } else {
-        console.log('\n not on the correct link');
+        console.log('\n not on the correct link - URL:', url);
       }
     } else {
       console.log('\n not on the correct store', originUrl);

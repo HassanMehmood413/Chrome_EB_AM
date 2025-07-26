@@ -33,17 +33,57 @@ export const removeCurrencySymbol = (amount) => {
 };
 
 (async () => {
-  await sleep(3);
-  console.log('\n *** Ebay Product Page Script Running ***');
+  try {
+    await sleep(3);
+    console.log('\n *** Ebay Product Page Script Running ***');
+    console.log('Current URL:', document.URL);
 
-  const response = await chrome.runtime.sendMessage({
-    callback: 'checkUser'
-  });
+    // Add message listener for manual extraction triggers
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      console.log('Content script received message:', message);
+      
+      if (message.action === 'ping') {
+        console.log('Ping received, responding...');
+        sendResponse({ 
+          success: true, 
+          message: 'Content script is running',
+          url: document.URL,
+          timestamp: message.data.timestamp
+        });
+        return true;
+      }
+      
+      if (message.action === 'triggerExtraction') {
+        console.log('Manual extraction triggered:', message.data);
+        
+        // Find the ScrapEbayPages component and trigger extraction
+        const extractButton = document.querySelector('#extract-titles-dev');
+        if (extractButton) {
+          console.log('Found extract button, clicking...');
+          extractButton.click();
+          sendResponse({ success: true, message: 'Extraction started' });
+        } else {
+          console.log('Extract button not found');
+          sendResponse({ success: false, message: 'Extract button not found' });
+        }
+        return true; // Keep the message channel open for async response
+      }
+    });
 
-  if (response.success) {
-    const allProducts = document.querySelectorAll('li[id*="item"]:not([articlecovered])');
+    const response = await chrome.runtime.sendMessage({
+      callback: 'checkUser'
+    });
 
-    const currentUrl = document.URL;
+    if (response.success) {
+      console.log('User check successful, proceeding with script...');
+      
+      // Wait a bit more for DOM to be fully loaded
+      await sleep(2);
+      
+      const allProducts = document.querySelectorAll('li[id*="item"]:not([articlecovered])');
+      console.log('Found products:', allProducts.length);
+
+      const currentUrl = document.URL;
     
     // Handle store pages (/str/)
     if (currentUrl?.includes('/str/')) {
@@ -96,9 +136,12 @@ export const removeCurrencySymbol = (amount) => {
     }
     
     // Handle search pages (existing logic)
-    if (currentUrl?.includes('store_name=')) {
+    if (currentUrl?.includes('store_name=') || currentUrl?.includes('_ssn=')) {
+      console.log('Search page detected, looking for insertion point...');
+      
       const searchDiv = document.querySelector('div[class="str-search-wrap"]');
       if (searchDiv) {
+        console.log('Found str-search-wrap div, inserting ScrapEbayPages...');
         const newDiv = document.createElement('div');
         newDiv.id = 'scrap-ebay-div';
 
@@ -109,9 +152,11 @@ export const removeCurrencySymbol = (amount) => {
           ebayProducts={allProducts}
         />);
         searchDiv?.insertAdjacentElement('afterend', newDiv);
+        console.log('ScrapEbayPages inserted after str-search-wrap');
       } else {
         const controlsDiv = document.querySelector('div[class*="srp-controls srp-controls-v3"]');
         if (controlsDiv) {
+          console.log('Found srp-controls div, inserting ScrapEbayPages...');
           const newDiv = document.createElement('div');
           newDiv.id = 'scrap-ebay-div';
 
@@ -121,63 +166,119 @@ export const removeCurrencySymbol = (amount) => {
             ebayProducts={allProducts}
           />);
           controlsDiv?.insertAdjacentElement('beforeend', newDiv);
+          console.log('ScrapEbayPages inserted before srp-controls');
+        } else {
+          console.log('No suitable insertion point found for ScrapEbayPages');
+          // Try to insert at the top of the page as fallback
+          const body = document.body;
+          if (body) {
+            console.log('Inserting ScrapEbayPages at body as fallback...');
+            const newDiv = document.createElement('div');
+            newDiv.id = 'scrap-ebay-div';
+            newDiv.style.cssText = 'position: fixed; top: 10px; right: 10px; z-index: 10000; background: white; padding: 10px; border: 2px solid #007cba; border-radius: 5px;';
+
+            const root = createRoot(newDiv);
+            root.render(<ScrapEbayPages
+              document={document}
+              ebayProducts={allProducts}
+            />);
+            body.appendChild(newDiv);
+            console.log('ScrapEbayPages inserted at body as fallback');
+          }
         }
       }
     }
 
     for (let i = 0; i < allProducts.length; i += 1) {
-      const visibleProduct = allProducts[i];
-      let sellerIdSpan = visibleProduct.querySelector('span[class*="s-item__seller-info"]');
-      if (!sellerIdSpan) {
-        sellerIdSpan = visibleProduct.querySelector('div[class*="s-item__wrapper"]');
-        sellerIdSpan = sellerIdSpan.querySelector('div[class*="s-item__info"]');
-      }
-      if (document.querySelector('ul.srp-list')) {
-        sellerIdSpan = visibleProduct.querySelector('div[class*="s-item__details"]')
-        console.log("NEW SELLER ID", sellerIdSpan)
-      }
+      try {
+        const visibleProduct = allProducts[i];
+        if (!visibleProduct) {
+          console.log('Skipping undefined product at index:', i);
+          continue;
+        }
+        
+        let sellerIdSpan = visibleProduct.querySelector('span[class*="s-item__seller-info"]');
+        if (!sellerIdSpan) {
+          const wrapper = visibleProduct.querySelector('div[class*="s-item__wrapper"]');
+          if (wrapper) {
+            sellerIdSpan = wrapper.querySelector('div[class*="s-item__info"]');
+          }
+        }
+        if (document.querySelector('ul.srp-list')) {
+          sellerIdSpan = visibleProduct.querySelector('div[class*="s-item__details"]');
+          console.log("NEW SELLER ID", sellerIdSpan);
+        }
 
-      visibleProduct?.setAttribute('articleCovered', true);
+        if (!sellerIdSpan) {
+          console.log('No seller ID span found for product at index:', i);
+          continue;
+        }
+
+        visibleProduct?.setAttribute('articleCovered', true);
 
       let storeName = visibleProduct.querySelector('span[class="s-item__seller-info-text"]')?.innerText;
       if (storeName) {
         storeName = storeName.split(' (')[0];
       } else {
-        const productDetailPageLink = visibleProduct.querySelector('a[class="s-item__link"]').href;
-        const requestOptions = {
-          method: 'GET',
-          headers: {
-            accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            cookie: document.cookie
-          },
-          redirect: 'follow'
-        };
+        const productDetailPageLink = visibleProduct.querySelector('a[class="s-item__link"]')?.href;
+        if (productDetailPageLink) {
+          try {
+            const requestOptions = {
+              method: 'GET',
+              headers: {
+                accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                cookie: document.cookie
+              },
+              redirect: 'follow'
+            };
 
-        let response = await fetch(productDetailPageLink, requestOptions);
-        response = await response.text();
-        const htmlData = new DOMParser().parseFromString(response, 'text/html');
-        const sellerCardInfoDiv = htmlData.querySelector('div[class="x-sellercard-atf__info"]');
-        storeName = sellerCardInfoDiv.querySelector('span[class*="ux-textspans"]')?.innerText;
+            let response = await fetch(productDetailPageLink, requestOptions);
+            response = await response.text();
+            const htmlData = new DOMParser().parseFromString(response, 'text/html');
+            const sellerCardInfoDiv = htmlData.querySelector('div[class="x-sellercard-atf__info"]');
+            if (sellerCardInfoDiv) {
+              storeName = sellerCardInfoDiv.querySelector('span[class*="ux-textspans"]')?.innerText;
+            }
+          } catch (fetchError) {
+            console.log('Error fetching product detail page:', fetchError);
+            storeName = 'Unknown Seller';
+          }
+        } else {
+          storeName = 'Unknown Seller';
+        }
       }
 
       const productDetailLink = visibleProduct.querySelector('a[class="s-item__link"]')?.href;
-      const productId = productDetailLink.match(/\/(\d+)(?:\?|\b)/)[1];
-
-      const title = visibleProduct.querySelector('div[class="s-item__title"]')?.innerText;
-      const priceDiv = visibleProduct.querySelector('span[class="s-item__price"]');
-      let price = priceDiv?.querySelectorAll('.POSITIVE');
-      if (price.length) {
-        price = price[price.length - 1]?.innerText || '0';
-      } else {
-        price = priceDiv?.innerText || '0';
+      if (!productDetailLink) {
+        console.log('No product detail link found for product at index:', i);
+        continue;
       }
-      price = removeCurrencySymbol(price);
+      
+      const productIdMatch = productDetailLink.match(/\/(\d+)(?:\?|\b)/);
+      if (!productIdMatch) {
+        console.log('Could not extract product ID from link:', productDetailLink);
+        continue;
+      }
+      const productId = productIdMatch[1];
 
-      const imageLink = visibleProduct.querySelector('img')?.src;
-      const isProductSponsored = visibleProduct.querySelector('span[data-w="pSnosroed"]');
+      const title = visibleProduct.querySelector('div[class="s-item__title"]')?.innerText || 'No Title';
+      const priceDiv = visibleProduct.querySelector('span[class="s-item__price"]');
+      let price = '0';
+      if (priceDiv) {
+        const priceElements = priceDiv.querySelectorAll('.POSITIVE');
+        if (priceElements.length) {
+          price = priceElements[priceElements.length - 1]?.innerText || '0';
+        } else {
+          price = priceDiv.innerText || '0';
+        }
+        price = removeCurrencySymbol(price);
+      }
+
+      const imageLink = visibleProduct.querySelector('img')?.src || '';
+      const isProductSponsored = visibleProduct.querySelector('span[data-w="pSnosroed"]') ? true : false;
       let soldAt = visibleProduct.querySelector('span[class*="s-item__caption--signal"]')?.innerText || '';
       if (soldAt) {
-        soldAt = soldAt.split('Sold ')[1];
+        soldAt = soldAt.split('Sold ')[1] || '';
       }
 
       const dataToBeCopied = {
@@ -195,8 +296,16 @@ export const removeCurrencySymbol = (amount) => {
         productId,
         dataToBeCopied
       });
+      } catch (productError) {
+        console.error('Error processing product at index:', i, productError);
+        continue;
+      }
     }
   } else {
     console.log('\n ### User is not logged in or not enable ###');
+  }
+  } catch (error) {
+    console.error('Error in Ebay Product Page Script:', error);
+    console.log('Script execution failed, but continuing...');
   }
 })();

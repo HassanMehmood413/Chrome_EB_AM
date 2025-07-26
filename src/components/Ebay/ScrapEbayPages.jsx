@@ -121,32 +121,88 @@ const ScrapEbayPage = ({
         const ebayHuntedProducts = [];
         let scrappingProducts = ebayProducts;
         if (runByCompetitorSearch === 'true') {
-          scrappingProducts = document.querySelectorAll('li[id*="item"]:not([articlecovered])');
+          // Try multiple selectors for modern eBay structure
+          const selectors = [
+            '.s-item:not([articlecovered])',
+            'li[id*="item"]:not([articlecovered])',
+            '.srp-results .s-item:not([articlecovered])',
+            '[data-testid*="item"]:not([articlecovered])',
+            '.srp-item:not([articlecovered])',
+            '.s-item__wrapper:not([articlecovered])'
+          ];
+          
+          for (const selector of selectors) {
+            scrappingProducts = document.querySelectorAll(selector);
+            if (scrappingProducts.length > 0) {
+              console.log(`Found ${scrappingProducts.length} products using selector: ${selector}`);
+              break;
+            }
+          }
+          
+          if (scrappingProducts.length === 0) {
+            console.log('No products found with any selector, trying all item-like elements...');
+            scrappingProducts = document.querySelectorAll('[class*="s-item"], [id*="item"], [class*="srp-item"]');
+            console.log(`Found ${scrappingProducts.length} products using fallback selectors`);
+          }
+        }
+        
+        if (!scrappingProducts || scrappingProducts.length === 0) {
+          console.log('No products found to process');
+          setExtractingTitles(false);
+          return;
         }
 
+        console.log(`Starting to process ${scrappingProducts.length} products...`);
         for (let i = 0; i < scrappingProducts.length; i += 1) {
-          const visibleProduct = scrappingProducts[i];
-          let soldAt1 = visibleProduct.querySelector('span[class*="s-item__caption--signal"]')?.innerText || '';
-          if (soldAt1) {
-            soldAt1 = soldAt1.split('Sold ')[1];
-          }
+          try {
+            console.log(`Processing product ${i + 1}/${scrappingProducts.length}...`);
+            const visibleProduct = scrappingProducts[i];
+            if (!visibleProduct) {
+              console.log('Skipping undefined product at index:', i);
+              continue;
+            }
 
-          if (competitorSearchSoldWithin) {
-            const date = moment().subtract(competitorSearchSoldWithin, 'days').toDate();
+            let soldAt1 = visibleProduct.querySelector('span[class*="s-item__caption--signal"]')?.innerText || '';
             if (soldAt1) {
-              if (moment(moment(soldAt1).toDate()).isAfter(date)) {
-                // do nothing
-              } else {
+              soldAt1 = soldAt1.split('Sold ')[1];
+            }
+
+            if (competitorSearchSoldWithin) {
+              try {
+                const date = moment().subtract(competitorSearchSoldWithin, 'days').toDate();
+                if (soldAt1) {
+                  // Try multiple date formats that eBay might use
+                  let soldDate;
+                  const formats = ['DD MMM YYYY', 'D MMM YYYY', 'MMM DD, YYYY', 'YYYY-MM-DD'];
+                  for (const format of formats) {
+                    soldDate = moment(soldAt1, format, true);
+                    if (soldDate.isValid()) break;
+                  }
+                  
+                  if (!soldDate || !soldDate.isValid()) {
+                    console.log('Could not parse sold date:', soldAt1);
+                    continue;
+                  }
+                  
+                  if (soldDate.isAfter(date)) {
+                    // do nothing
+                  } else {
+                    continue;
+                  }
+                }
+              } catch (dateError) {
+                console.log('Error processing date for product at index:', i, dateError);
                 continue;
               }
             }
-          }
 
-          let sellerIdSpan = visibleProduct.querySelector('span[class*="s-item__seller-info"]');
-          if (!sellerIdSpan) {
-            sellerIdSpan = visibleProduct.querySelector('div[class*="s-item__wrapper"]');
-            sellerIdSpan = sellerIdSpan.querySelector('div[class*="s-item__info"]');
-          }
+            let sellerIdSpan = visibleProduct.querySelector('span[class*="s-item__seller-info"]');
+            if (!sellerIdSpan) {
+              const wrapper = visibleProduct.querySelector('div[class*="s-item__wrapper"]');
+              if (wrapper) {
+                sellerIdSpan = wrapper.querySelector('div[class*="s-item__info"]');
+              }
+            }
   
           visibleProduct?.setAttribute('articleCovered', true);
   
@@ -154,33 +210,55 @@ const ScrapEbayPage = ({
           if (storeName) {
             storeName = storeName.split(' (')[0];
           } else {
-            const productDetailPageLink = visibleProduct.querySelector('a[class="s-item__link"]').href;
-            const requestOptions = {
-              method: 'GET',
-              headers: {
-                accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                cookie: document.cookie
-              },
-              redirect: 'follow'
-            };
-  
-            let response = await fetch(productDetailPageLink, requestOptions);
-            response = await response.text();
-            const htmlData = new DOMParser().parseFromString(response, 'text/html');
-            const sellerCardInfoDiv = htmlData.querySelector('div[class="x-sellercard-atf__info"]');
-            storeName = sellerCardInfoDiv.querySelector('span[class*="ux-textspans"]')?.innerText;
+            const productDetailPageLink = visibleProduct.querySelector('a[class="s-item__link"]')?.href;
+            if (productDetailPageLink) {
+              try {
+                const requestOptions = {
+                  method: 'GET',
+                  headers: {
+                    accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    cookie: document.cookie
+                  },
+                  redirect: 'follow'
+                };
+      
+                let response = await fetch(productDetailPageLink, requestOptions);
+                response = await response.text();
+                const htmlData = new DOMParser().parseFromString(response, 'text/html');
+                const sellerCardInfoDiv = htmlData.querySelector('div[class="x-sellercard-atf__info"]');
+                storeName = sellerCardInfoDiv?.querySelector('span[class*="ux-textspans"]')?.innerText || 'Unknown Seller';
+              } catch (fetchError) {
+                console.log('Failed to fetch seller name from product page:', fetchError);
+                storeName = 'Unknown Seller';
+              }
+            } else {
+              storeName = 'Unknown Seller';
+            }
           }
   
           const productDetailLink = visibleProduct.querySelector('a[class="s-item__link"]')?.href;
-          const productId = productDetailLink.match(/\/(\d+)(?:\?|\b)/)[1];
+          if (!productDetailLink) {
+            console.log('No product detail link found for product at index:', i);
+            continue;
+          }
+          
+          const productIdMatch = productDetailLink.match(/\/(\d+)(?:\?|\b)/);
+          if (!productIdMatch) {
+            console.log('Could not extract product ID from link:', productDetailLink);
+            continue;
+          }
+          const productId = productIdMatch[1];
   
-          const title = visibleProduct.querySelector('div[class="s-item__title"]')?.innerText;
+          const title = visibleProduct.querySelector('div[class="s-item__title"]')?.innerText || 'No Title';
           const priceDiv = visibleProduct.querySelector('span[class="s-item__price"]');
-          let price = priceDiv?.querySelectorAll('.POSITIVE');
-          if (price.length) {
-            price = price[price.length - 1]?.innerText || '0';
-          } else {
-            price = priceDiv?.innerText || '0';
+          let price = '0';
+          if (priceDiv) {
+            const priceElements = priceDiv.querySelectorAll('.POSITIVE');
+            if (priceElements.length) {
+              price = priceElements[priceElements.length - 1]?.innerText || '0';
+            } else {
+              price = priceDiv.innerText || '0';
+            }
           }
           const priceWithoutSymbol = removeCurrencySymbol(price);
           
@@ -211,7 +289,15 @@ const ScrapEbayPage = ({
           if (competitorSearchSoldWithin) {
             const date = moment().subtract(competitorSearchSoldWithin, 'days').toDate();
             if (soldAt) {
-              if (moment(moment(soldAt).toDate()).isAfter(date)) {
+              // Try multiple date formats that eBay might use
+              let soldDate;
+              const formats = ['DD MMM YYYY', 'D MMM YYYY', 'MMM DD, YYYY', 'YYYY-MM-DD'];
+              for (const format of formats) {
+                soldDate = moment(soldAt, format, true);
+                if (soldDate.isValid()) break;
+              }
+              
+              if (soldDate && soldDate.isValid() && soldDate.isAfter(date)) {
                 // do nothing
               } else {
                 pushProduct = false;
@@ -306,8 +392,10 @@ const ScrapEbayPage = ({
   
               const uniqueProducts = uniqBy(previousScrappedProducts, 'itemNumber');
               await setLocal(`ebay-hunted-products-${currentUserId}`, uniqueProducts);
+              console.log(`✅ Successfully saved product ${productId} to storage. Total products: ${uniqueProducts.length}`);
             } else {
               await setLocal(`ebay-hunted-products-${currentUserId}`, [scrappedProduct]);
+              console.log(`✅ Successfully saved first product ${productId} to storage. Total products: 1`);
             }
   
             const alreadyScrapped = localEbayHuntedProducts?.find(obj => obj.itemNumber === productId);
@@ -330,12 +418,20 @@ const ScrapEbayPage = ({
             await setLocal(`extract-titles-${currentUserId}`, false);
             break;
           }
+          } catch (productError) {
+            console.log('Error processing product at index:', i, productError);
+            continue;
+          }
         }
   
         setTotalEbayHuntedProducts(ebayHuntedProducts?.length || 0);
         // const allProducts = [...ebayHuntedProducts, ...localEbayHuntedProducts || []];
-        // await setLocal(`ebay-hunted-products-${currentUserId}`, allProducts);
+        // await setLocal(`ebay-hunted-products-${currentUserId}`, uniqueProducts);
         setExtractingTitles(false);
+        
+        // Ensure all data is saved before proceeding
+        console.log('Extraction completed, ensuring data is saved...');
+        await sleep(1);
   
         const scrapAllPages = await getLocal(`scrap-all-pages-${currentUserId}`);
         if (currentValue !== 'Stop Extracting Titles' && scrapAllPages && document.URL.includes('store_name=')) {
@@ -358,6 +454,16 @@ const ScrapEbayPage = ({
         if (runByCompetitorSearch || competitorSearch === 'true') {
           console.log('\n seller done');
           await setLocal('competitor-search-status', 'success');
+          
+          // Add delay to ensure data is saved before closing
+          console.log('Waiting 3 seconds for data to be saved...');
+          await sleep(3);
+          
+          // Verify data was saved before closing
+          const savedProducts = await getLocal(`ebay-hunted-products-${currentUserId}`);
+          console.log(`Final verification: ${savedProducts?.length || 0} products saved to storage`);
+          
+          console.log('Closing tab after data save delay...');
           await chrome.runtime.sendMessage({
             callback: 'closeTab'
           });
@@ -414,7 +520,7 @@ const ScrapEbayPage = ({
     setTotalEbayHuntedProducts(huntedProducts?.length || 0);
   };
 
-  useEffect(async () => {
+  useEffect(() => {
     const checkData = async () => {
       const userId = await getLocal('current-user');
       const getSoldHistoryCheck = await getLocal(`get-sold-history-check-${userId}`);
@@ -438,8 +544,32 @@ const ScrapEbayPage = ({
       }
 
       onChangeLocalState(`ebay-hunted-products-${userId}`, changeHuntedProducts);
+      console.log('Checking auto-extraction conditions:', { scrapAllPages, extractTitles, competitorSearch });
+      
       if ((scrapAllPages && extractTitles) || competitorSearch) {
-        document.querySelector('#extract-titles-dev').click();
+        console.log('Auto-extraction condition met, looking for extract button...');
+        
+        // Add a small delay to ensure the component is fully rendered
+        setTimeout(() => {
+          const extractButton = document.querySelector('#extract-titles-dev');
+          console.log('Extract button found:', !!extractButton);
+          if (extractButton) {
+            console.log('Clicking extract button automatically...');
+            extractButton.click();
+          } else {
+            console.log('Extract button not found, will retry in 2 seconds...');
+            // Retry after 2 seconds
+            setTimeout(() => {
+              const retryButton = document.querySelector('#extract-titles-dev');
+              if (retryButton) {
+                console.log('Found extract button on retry, clicking...');
+                retryButton.click();
+              } else {
+                console.log('Extract button still not found after retry');
+              }
+            }, 2000);
+          }
+        }, 1000);
       }
     };
 

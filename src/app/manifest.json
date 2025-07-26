@@ -30,6 +30,14 @@
     "https://www.amazon.com/*",
     "https://www.amazon.co.uk/*",
     "https://www.amazon.*/*",
+    "https://www.ebay.com/*",
+    "https://www.ebay.co.uk/*",
+    "https://www.ebay.de/*",
+    "https://www.ebay.fr/*",
+    "https://www.ebay.it/*",
+    "https://www.ebay.es/*",
+    "https://www.ebay.com.au/*",
+    "https://www.ebay.ca/*",
     "http://localhost:3000/*"
   ],
   "content_scripts": [
@@ -78,8 +86,19 @@
     },
     {
       "matches": [
-        "https://www.ebay.co.uk/*",
-        "https://www.ebay.com/*"
+        "https://www.ebay.co.uk/sch/i.html*",
+        "https://www.ebay.com/sch/i.html*"
+      ],
+      "js": [
+        "ebay_all_products_page.bundle.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://www.ebay.co.uk/sh/lst/active?*",
+        "https://www.ebay.com/sh/lst/active?*",
+        "https://www.ebay.co.uk/itm/*",
+        "https://www.ebay.com/itm/*"
       ],
       "js": [
         "hide_personal_info_script.bundle.js"

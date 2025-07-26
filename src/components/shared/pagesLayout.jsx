@@ -2,7 +2,7 @@ const links = [
   { label: 'Finder', href: 'product-hunter.html' },
   { label: 'Tracker', href: 'tracker.html' },
   { label: 'Lister', href: 'bulk-lister.html' },
-  { label: 'Scanner', href: 'competitor-search.html' },
+  { label: 'Saved Seller', href: 'competitor-search.html' },
   { label: 'Boost Listings', href: 'boost-listing.html' },
   { label: 'Image Template', href: 'collage-template-editor.html' },
   { label: 'Listing Setup', href: 'listing-setup.html' },
